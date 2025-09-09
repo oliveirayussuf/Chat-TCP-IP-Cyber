@@ -1,0 +1,14 @@
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\bin\Debug\net9.0\ChatClient.exe
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\bin\Debug\net9.0\ChatClient.deps.json
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\bin\Debug\net9.0\ChatClient.runtimeconfig.json
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\bin\Debug\net9.0\ChatClient.dll
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\bin\Debug\net9.0\ChatClient.pdb
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\obj\Debug\net9.0\ChatClient.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\obj\Debug\net9.0\ChatClient.AssemblyInfoInputs.cache
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\obj\Debug\net9.0\ChatClient.AssemblyInfo.cs
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\obj\Debug\net9.0\ChatClient.csproj.CoreCompileInputs.cache
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\obj\Debug\net9.0\ChatClient.dll
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\obj\Debug\net9.0\refint\ChatClient.dll
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\obj\Debug\net9.0\ChatClient.pdb
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\obj\Debug\net9.0\ChatClient.genruntimeconfig.cache
+C:\Users\Administrador\Desktop\Dev#\Projects\Chat\ChatClient\obj\Debug\net9.0\ref\ChatClient.dll
