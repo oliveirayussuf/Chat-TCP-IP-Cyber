@@ -152,6 +152,7 @@ static class CipherUtil
             "vigenere" => Vigenere.Encrypt(plain, key ?? ""),
             "mono" or "monoalpha" or "monoalfabetica" => Monoalphabetic.Encrypt(plain, key ?? ""),
             "playfair" => Playfair.Encrypt(plain, key ?? ""),
+            "rc4" => RC4.Encrypt(plain, key ?? ""), // Nova cifra RC4
             _ => plain
         };
     }
@@ -165,6 +166,7 @@ static class CipherUtil
             "vigenere" => Vigenere.Decrypt(cipherText, key ?? ""),
             "mono" or "monoalpha" or "monoalfabetica" => Monoalphabetic.Decrypt(cipherText, key ?? ""),
             "playfair" => Playfair.Decrypt(cipherText, key ?? ""),
+            "rc4" => RC4.Decrypt(cipherText, key ?? ""), // Nova cifra RC4
             _ => cipherText
         };
     }
@@ -419,6 +421,74 @@ static class CipherUtil
             }
             // The decrypted text may contain padding 'X' inserted; leave as-is for server log.
             return sb.ToString();
+        }
+    }
+
+    // ---------------- RC4 ----------------
+    public static class RC4
+    {
+        public static string Encrypt(string text, string key)
+        {
+            byte[] data = Encoding.UTF8.GetBytes(text);
+            byte[] keyBytes = Encoding.UTF8.GetBytes(key);
+            byte[] encrypted = RC4Encrypt(data, keyBytes);
+            return Convert.ToBase64String(encrypted);
+        }
+
+        public static string Decrypt(string cipherText, string key)
+        {
+            try
+            {
+                byte[] data = Convert.FromBase64String(cipherText);
+                byte[] keyBytes = Encoding.UTF8.GetBytes(key);
+                byte[] decrypted = RC4Encrypt(data, keyBytes);
+                return Encoding.UTF8.GetString(decrypted);
+            }
+            catch
+            {
+                return cipherText; // Retorna o texto original em caso de erro
+            }
+        }
+
+        private static byte[] RC4Encrypt(byte[] data, byte[] key)
+        {
+            byte[] s = new byte[256];
+            byte[] k = new byte[256];
+            byte temp;
+            int i, j;
+
+            for (i = 0; i < 256; i++)
+            {
+                s[i] = (byte)i;
+                k[i] = key[i % key.Length];
+            }
+
+            j = 0;
+            for (i = 0; i < 256; i++)
+            {
+                j = (j + s[i] + k[i]) % 256;
+                temp = s[i];
+                s[i] = s[j];
+                s[j] = temp;
+            }
+
+            i = j = 0;
+            byte[] result = new byte[data.Length];
+
+            for (int x = 0; x < data.Length; x++)
+            {
+                i = (i + 1) % 256;
+                j = (j + s[i]) % 256;
+
+                temp = s[i];
+                s[i] = s[j];
+                s[j] = temp;
+
+                int t = (s[i] + s[j]) % 256;
+                result[x] = (byte)(data[x] ^ s[t]);
+            }
+
+            return result;
         }
     }
 }
