@@ -1,96 +1,74 @@
-﻿using System;
+﻿// Program.cs (ChatServer)
+using System;
 using System.Collections.Concurrent;
-using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using System.Text.Json;
 using System.Threading.Tasks;
 
 class Program
 {
     static ConcurrentDictionary<TcpClient, string> clients = new();
 
-    static async Task Main()
+    static void Main()
     {
-        int port = 9000;
-        var listener = new TcpListener(IPAddress.Any, port);
-        listener.Start();
-        Console.WriteLine($"Servidor rodando na porta {port}...");
+        TcpListener server = new(IPAddress.Any, 9000);
+        server.Start();
+        Console.WriteLine("Servidor iniciado na porta 9000.");
 
-        while (true)
+        Task.Run(async () =>
         {
-            var client = await listener.AcceptTcpClientAsync();
-            _ = HandleClient(client);
-        }
+            while (true)
+            {
+                TcpClient client = await server.AcceptTcpClientAsync();
+                Console.WriteLine("Novo cliente conectado.");
+                clients.TryAdd(client, "");
+
+                Task.Run(() => HandleClient(client));
+            }
+        });
+
+        Console.ReadLine();
     }
 
-    static async Task HandleClient(TcpClient client)
+    static void HandleClient(TcpClient client)
     {
-        clients[client] = "";
+        var stream = client.GetStream();
+        byte[] buffer = new byte[1024];
 
-        using var stream = client.GetStream();
-        using var reader = new StreamReader(stream, new UTF8Encoding(false));
-        // Não precisa criar writer aqui para o cliente atual (broadcast faz isso)
         try
         {
             while (true)
             {
-                string line = await reader.ReadLineAsync();
-                if (line == null) break;
+                int bytesRead = stream.Read(buffer, 0, buffer.Length);
+                if (bytesRead == 0) break;
 
-                // Só encaminha a linha JSON para todos e também imprime uma linha pra debug
-                // imprime baseado no conteúdo JSON
-                try
-                {
-                    using var doc = JsonDocument.Parse(line);
-                    var root = doc.RootElement;
-                    bool system = root.TryGetProperty("System", out var sys) && sys.GetBoolean();
-                    string username = root.TryGetProperty("Username", out var u) ? u.GetString() ?? "Anon" : "Anon";
-                    string cipher = root.TryGetProperty("Cipher", out var c) ? c.GetString() ?? "" : "";
-                    string payload = root.TryGetProperty("Payload", out var p) ? p.GetString() ?? "" : "";
+                byte[] received = new byte[bytesRead];
+                Array.Copy(buffer, received, bytesRead);
 
-                    if (system)
-                    {
-                        clients[client] = username;
-                        Console.WriteLine($"[SYSTEM] {payload}");
-                    }
-                    else
-                    {
-                        if (cipher.Equals("des", StringComparison.OrdinalIgnoreCase))
-                            Console.WriteLine($"[{username}] (DES HEX) {payload}");
-                        else
-                            Console.WriteLine($"[{username}] {payload}");
-                    }
-                }
-                catch
-                {
-                    Console.WriteLine("[SERVER] recebeu linha não-JSON / parse falhou:");
-                    Console.WriteLine(line);
-                }
+                // Mostra a mensagem criptografada em ASCII/hex
+                string hex = BitConverter.ToString(received).Replace("-", " ");
+                Console.WriteLine($"Mensagem criptografada recebida (hex): {hex}");
 
-                // Broadcast raw line to all other clients
-                foreach (var kv in clients)
+                // Retransmite para outros clients
+                foreach (var c in clients.Keys)
                 {
-                    var c = kv.Key;
-                    if (c == client) continue;
-                    try
+                    if (c != client)
                     {
-                        var sw = new StreamWriter(c.GetStream(), new UTF8Encoding(false)) { AutoFlush = true };
-                        await sw.WriteLineAsync(line);
+                        c.GetStream().Write(received, 0, received.Length);
                     }
-                    catch { /* ignore individual client write errors */ }
                 }
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine("[SERVER] erro: " + ex.Message);
+            Console.WriteLine("Erro no client: " + ex.Message);
         }
         finally
         {
             clients.TryRemove(client, out _);
             client.Close();
+            Console.WriteLine("Cliente desconectado.");
         }
     }
 }
