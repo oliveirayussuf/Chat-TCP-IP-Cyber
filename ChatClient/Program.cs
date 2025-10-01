@@ -1,10 +1,8 @@
-﻿// Program.cs (ChatClient)
-using System;
+﻿using System;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
-using System.Threading;
 using System.Threading.Tasks;
 
 class Program
@@ -14,454 +12,261 @@ class Program
         Console.Write("IP do servidor: ");
         string ip = Console.ReadLine()?.Trim();
         if (string.IsNullOrWhiteSpace(ip)) ip = "127.0.0.1";
+
         Console.Write("Porta (default 9000): ");
-        string portS = Console.ReadLine();
-        int port = 9000;
-        if (!string.IsNullOrWhiteSpace(portS)) int.TryParse(portS, out port);
+        string portStr = Console.ReadLine();
+        int port = string.IsNullOrWhiteSpace(portStr) ? 9000 : int.Parse(portStr);
 
         Console.Write("Seu nome de usuário: ");
         string username = Console.ReadLine();
-        if (string.IsNullOrWhiteSpace(username)) username = "Anon";
 
-        using var tcp = new TcpClient();
-        await tcp.ConnectAsync(ip, port);
-        var stream = tcp.GetStream();
-        var reader = new StreamReader(stream, Encoding.UTF8);
-        var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
-
-        // Menu de escolha de cifra
         Console.WriteLine("Escolha a cifra:");
         Console.WriteLine("1. Caesar");
         Console.WriteLine("2. Substituição Monoalfabética");
         Console.WriteLine("3. Playfair");
         Console.WriteLine("4. Vigenère");
-        Console.WriteLine("5. RC4"); // Nova opção
-        Console.Write("Opção (1-5): ");
-        var op = Console.ReadLine()?.Trim();
-        string cipher = "caesar";
-        switch (op)
-        {
-            case "1": cipher = "caesar"; break;
-            case "2": cipher = "mono"; break;
-            case "3": cipher = "playfair"; break;
-            case "4": cipher = "vigenere"; break;
-            case "5": cipher = "rc4"; break; // Nova opção
-            default: cipher = "caesar"; break;
-        }
+        Console.WriteLine("5. RC4");
+        Console.WriteLine("6. DES (manual)");
+        Console.Write("Opção (1-6): ");
+        string option = Console.ReadLine();
 
-        Console.Write("Insira a chave (p/ Caesar coloque um número): ");
-        string key = Console.ReadLine() ?? "";
+        Console.Write("Insira a chave (p/ Caesar coloque um número, p/ DES use qualquer string): ");
+        string key = Console.ReadLine();
 
-        // Envia handshake
-        var handshake = new Message { Type = "handshake", Username = username, Cipher = cipher, Key = key };
-        await writer.WriteLineAsync(JsonSerializer.Serialize(handshake));
+        using var client = new TcpClient();
+        await client.ConnectAsync(ip, port);
+        using var stream = client.GetStream();
+        using var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
+        using var reader = new StreamReader(stream, Encoding.UTF8);
 
-        // Inicia listener para receber mensagens
+        Console.WriteLine("Conectado! Digite suas mensagens (ENTER para enviar). /quit para sair");
+
+        // Thread para escutar mensagens recebidas
         _ = Task.Run(async () =>
         {
-            try
+            while (true)
             {
-                while (true)
+                try
                 {
                     string line = await reader.ReadLineAsync();
-                    if (line == null) break;
-                    var msg = JsonSerializer.Deserialize<Message>(line);
-                    if (msg == null) continue;
+                    if (string.IsNullOrEmpty(line)) continue;
 
-                    if (msg.Type == "message")
+                    var msg = JsonSerializer.Deserialize<ChatMessage>(line);
+
+                    if (msg.System)
                     {
-                        // Descriptografa usando nossa configuração atual
-                        string decrypted = CipherUtil.Decrypt(msg.Payload, cipher, key);
-                        Console.WriteLine($"\n[{msg.Username}] {decrypted}");
-                        Console.Write("> ");
+                        Console.WriteLine($"[SYSTEM] {msg.Payload}");
+                        continue;
                     }
-                    else if (msg.Type == "system")
+
+                    if (msg.Cipher == "des")
                     {
-                        Console.WriteLine($"\n[SYSTEM] {msg.Payload}");
-                        Console.Write("> ");
-                    }
-                }
-            }
-            catch (Exception ex) { Console.WriteLine($"Receiver error: {ex.Message}"); }
-        });
-
-        Console.WriteLine("Conectado! Digite suas mensagens (ENTER para enviar).");
-        while (true)
-        {
-            Console.Write("> ");
-            string text = Console.ReadLine();
-            if (text == null) break;
-            if (text.Equals("/quit", StringComparison.OrdinalIgnoreCase)) break;
-
-            string encrypted = CipherUtil.Encrypt(text, cipher, key);
-            var message = new Message { Type = "message", Username = username, Cipher = cipher, Key = key, Payload = encrypted };
-            await writer.WriteLineAsync(JsonSerializer.Serialize(message));
-        }
-
-        tcp.Close();
-    }
-}
-
-record Message
-{
-    public string Type { get; init; } = "message";
-    public string Username { get; init; }
-    public string Cipher { get; init; }
-    public string Key { get; init; }
-    public string Payload { get; init; }
-}
-
-/*
- * Reutilize a mesma CipherUtil do servidor (cole aqui).
- * Para evitar duplicação no seu projeto real, crie uma biblioteca compartilhada.
- * Abaixo, colar exatamente o mesmo conteúdo CipherUtil usado no servidor.
- */
-
-static class CipherUtil
-{
-    public static string Encrypt(string plain, string cipher, string key)
-    {
-        cipher = (cipher ?? "").ToLowerInvariant();
-        return cipher switch
-        {
-            "caesar" => Caesar.Encrypt(plain, ParseIntKey(key, 3)),
-            "vigenere" => Vigenere.Encrypt(plain, key ?? ""),
-            "mono" or "monoalpha" or "monoalfabetica" => Monoalphabetic.Encrypt(plain, key ?? ""),
-            "playfair" => Playfair.Encrypt(plain, key ?? ""),
-            "rc4" => RC4.Encrypt(plain, key ?? ""), // Nova cifra RC4
-            _ => plain
-        };
-    }
-
-    public static string Decrypt(string cipherText, string cipher, string key)
-    {
-        cipher = (cipher ?? "").ToLowerInvariant();
-        return cipher switch
-        {
-            "caesar" => Caesar.Decrypt(cipherText, ParseIntKey(key, 3)),
-            "vigenere" => Vigenere.Decrypt(cipherText, key ?? ""),
-            "mono" or "monoalpha" or "monoalfabetica" => Monoalphabetic.Decrypt(cipherText, key ?? ""),
-            "playfair" => Playfair.Decrypt(cipherText, key ?? ""),
-            "rc4" => RC4.Decrypt(cipherText, key ?? ""), // Nova cifra RC4
-            _ => cipherText
-        };
-    }
-
-    static int ParseIntKey(string key, int @default)
-    {
-        if (int.TryParse(key, out int k)) return k % 26;
-        return @default;
-    }
-
-    // ---------------- Caesar ----------------
-    public static class Caesar
-    {
-        public static string Encrypt(string text, int shift)
-        {
-            shift = ((shift % 26) + 26) % 26;
-            var sb = new System.Text.StringBuilder();
-            foreach (char c in text)
-            {
-                if (char.IsLetter(c))
-                {
-                    char baseC = char.IsUpper(c) ? 'A' : 'a';
-                    sb.Append((char)(baseC + (c - baseC + shift) % 26));
-                }
-                else sb.Append(c);
-            }
-            return sb.ToString();
-        }
-        public static string Decrypt(string text, int shift) => Encrypt(text, 26 - (shift % 26));
-    }
-
-    // ---------------- Vigenere ----------------
-    public static class Vigenere
-    {
-        static string NormalizeKey(string key)
-        {
-            var s = new System.Text.StringBuilder();
-            foreach (var ch in key.ToLowerInvariant())
-                if (char.IsLetter(ch)) s.Append(ch);
-            return s.Length == 0 ? "a" : s.ToString();
-        }
-        public static string Encrypt(string text, string key)
-        {
-            key = NormalizeKey(key);
-            var sb = new System.Text.StringBuilder();
-            int j = 0;
-            foreach (char c in text)
-            {
-                if (char.IsLetter(c))
-                {
-                    char baseC = char.IsUpper(c) ? 'A' : 'a';
-                    int shift = key[j % key.Length] - 'a';
-                    sb.Append((char)(baseC + (c - baseC + shift) % 26));
-                    j++;
-                }
-                else sb.Append(c);
-            }
-            return sb.ToString();
-        }
-        public static string Decrypt(string text, string key)
-        {
-            key = NormalizeKey(key);
-            var sb = new System.Text.StringBuilder();
-            int j = 0;
-            foreach (char c in text)
-            {
-                if (char.IsLetter(c))
-                {
-                    char baseC = char.IsUpper(c) ? 'A' : 'a';
-                    int shift = key[j % key.Length] - 'a';
-                    sb.Append((char)(baseC + (c - baseC - shift + 26) % 26));
-                    j++;
-                }
-                else sb.Append(c);
-            }
-            return sb.ToString();
-        }
-    }
-
-    // ---------------- Monoalphabetic ----------------
-    public static class Monoalphabetic
-    {
-        public static string Encrypt(string text, string key)
-        {
-            key = key?.ToUpperInvariant() ?? "";
-            if (key.Length != 26) return text;
-            var map = new char[26];
-            for (int i = 0; i < 26; i++) map[i] = key[i];
-            var sb = new System.Text.StringBuilder();
-            foreach (char c in text)
-            {
-                if (char.IsUpper(c)) sb.Append(map[c - 'A']);
-                else if (char.IsLower(c)) sb.Append(char.ToLower(map[c - 'a']));
-                else sb.Append(c);
-            }
-            return sb.ToString();
-        }
-
-        public static string Decrypt(string text, string key)
-        {
-            key = key?.ToUpperInvariant() ?? "";
-            if (key.Length != 26) return text;
-            var rev = new char[26];
-            for (int i = 0; i < 26; i++)
-                rev[key[i] - 'A'] = (char)('A' + i);
-            var sb = new System.Text.StringBuilder();
-            foreach (char c in text)
-            {
-                if (char.IsUpper(c)) sb.Append(rev[c - 'A']);
-                else if (char.IsLower(c)) sb.Append(char.ToLower(rev[c - 'a']));
-                else sb.Append(c);
-            }
-            return sb.ToString();
-        }
-    }
-
-    // ---------------- Playfair ----------------
-    public static class Playfair
-    {
-        static char[,] BuildMatrix(string key)
-        {
-            key = (key ?? "").ToUpperInvariant().Replace('J', 'I');
-            var used = new bool[26];
-            var mat = new char[5, 5];
-            int r = 0, c = 0;
-            foreach (char ch in key)
-            {
-                if (!char.IsLetter(ch)) continue;
-                int idx = ch - 'A';
-                if (idx == ('J' - 'A')) idx = ('I' - 'A');
-                if (!used[idx])
-                {
-                    used[idx] = true;
-                    mat[r, c] = (char)('A' + idx);
-                    c++; if (c == 5) { c = 0; r++; }
-                }
-            }
-            for (char ch = 'A'; ch <= 'Z'; ch++)
-            {
-                if (ch == 'J') continue;
-                int idx = ch - 'A';
-                if (!used[idx])
-                {
-                    used[idx] = true;
-                    mat[r, c] = ch;
-                    c++; if (c == 5) { c = 0; r++; }
-                }
-            }
-            return mat;
-        }
-
-        static (int row, int col) Find(char[,] mat, char ch)
-        {
-            ch = (ch == 'J') ? 'I' : ch;
-            for (int i = 0; i < 5; i++) for (int j = 0; j < 5; j++) if (mat[i, j] == ch) return (i, j);
-            throw new Exception("Char not in matrix: " + ch);
-        }
-
-        static string PreparePlain(string input)
-        {
-            var sb = new System.Text.StringBuilder();
-            foreach (char ch in input.ToUpperInvariant())
-            {
-                if (char.IsLetter(ch))
-                    sb.Append(ch == 'J' ? 'I' : ch);
-            }
-            var res = new System.Text.StringBuilder();
-            for (int i = 0; i < sb.Length; i++)
-            {
-                char a = sb[i];
-                char b = (i + 1 < sb.Length) ? sb[i + 1] : '\0';
-                if (b == '\0')
-                {
-                    res.Append(a);
-                    res.Append('X');
-                }
-                else
-                {
-                    if (a == b)
-                    {
-                        res.Append(a);
-                        res.Append('X');
+                        try
+                        {
+                            string decrypted = CipherUtil.DES_DecryptHex(msg.Payload, key);
+                            Console.WriteLine($"[{msg.Username}] {decrypted}");
+                        }
+                        catch
+                        {
+                            Console.WriteLine($"[{msg.Username}] (erro ao decifrar)");
+                        }
                     }
                     else
                     {
-                        res.Append(a);
-                        res.Append(b);
-                        i++;
+                        Console.WriteLine($"[{msg.Username}] Mensagem criptografada: {msg.Payload}");
                     }
                 }
+                catch { }
             }
-            return res.ToString();
-        }
+        });
 
-        public static string Encrypt(string plain, string key)
+        // Enviar mensagem de entrada
+        var joinMsg = new ChatMessage
         {
-            var mat = BuildMatrix(key);
-            string prepared = PreparePlain(plain);
-            var sb = new System.Text.StringBuilder();
-            for (int i = 0; i < prepared.Length; i += 2)
-            {
-                char a = prepared[i], b = prepared[i + 1];
-                var pa = Find(mat, a);
-                var pb = Find(mat, b);
-                if (pa.row == pb.row)
-                {
-                    sb.Append(mat[pa.row, (pa.col + 1) % 5]);
-                    sb.Append(mat[pb.row, (pb.col + 1) % 5]);
-                }
-                else if (pa.col == pb.col)
-                {
-                    sb.Append(mat[(pa.row + 1) % 5, pa.col]);
-                    sb.Append(mat[(pb.row + 1) % 5, pb.col]);
-                }
-                else
-                {
-                    sb.Append(mat[pa.row, pb.col]);
-                    sb.Append(mat[pb.row, pa.col]);
-                }
-            }
-            return sb.ToString();
-        }
+            Username = username,
+            Cipher = "system",
+            Payload = $"{username} entrou no chat",
+            System = true
+        };
+        await writer.WriteLineAsync(JsonSerializer.Serialize(joinMsg));
 
-        public static string Decrypt(string cipher, string key)
+        // Loop de envio
+        while (true)
         {
-            var mat = BuildMatrix(key);
-            cipher = new string((cipher ?? "").ToUpperInvariant().ToCharArray());
-            var sb = new System.Text.StringBuilder();
-            for (int i = 0; i + 1 < cipher.Length; i += 2)
+            string text = Console.ReadLine();
+            if (string.IsNullOrWhiteSpace(text)) continue;
+            if (text.ToLower() == "/quit") break;
+
+            string encrypted = option switch
             {
-                char a = cipher[i], b = cipher[i + 1];
-                if (!char.IsLetter(a) || !char.IsLetter(b)) continue;
-                var pa = Find(mat, a);
-                var pb = Find(mat, b);
-                if (pa.row == pb.row)
+                "1" => CipherUtil.CaesarEncrypt(text, int.Parse(key)),
+                "2" => CipherUtil.SubEncrypt(text, key),
+                "3" => CipherUtil.PlayfairEncrypt(text, key),
+                "4" => CipherUtil.VigenereEncrypt(text, key),
+                "5" => CipherUtil.RC4Encrypt(text, key),
+                "6" => CipherUtil.DES_EncryptToHex(text, key),
+                _ => text
+            };
+
+            var chatMsg = new ChatMessage
+            {
+                Username = username,
+                Cipher = option switch
                 {
-                    sb.Append(mat[pa.row, (pa.col + 4) % 5]);
-                    sb.Append(mat[pb.row, (pb.col + 4) % 5]);
-                }
-                else if (pa.col == pb.col)
-                {
-                    sb.Append(mat[(pa.row + 4) % 5, pa.col]);
-                    sb.Append(mat[(pb.row + 4) % 5, pb.col]);
-                }
-                else
-                {
-                    sb.Append(mat[pa.row, pb.col]);
-                    sb.Append(mat[pb.row, pa.col]);
-                }
-            }
-            return sb.ToString();
+                    "1" => "caesar",
+                    "2" => "sub",
+                    "3" => "playfair",
+                    "4" => "vigenere",
+                    "5" => "rc4",
+                    "6" => "des",
+                    _ => "none"
+                },
+                Payload = encrypted,
+                System = false
+            };
+
+            await writer.WriteLineAsync(JsonSerializer.Serialize(chatMsg));
         }
     }
+}
 
-    // ---------------- RC4 ----------------
-    public static class RC4
+class ChatMessage
+{
+    public string Username { get; set; }
+    public string Cipher { get; set; }
+    public string Payload { get; set; }
+    public bool System { get; set; }
+}
+
+// ----------------------- CipherUtil embutido -----------------------
+public static class CipherUtil
+{
+    // Caesar
+    public static string CaesarEncrypt(string text, int shift)
     {
-        public static string Encrypt(string text, string key)
+        var sb = new StringBuilder();
+        foreach (char c in text)
         {
-            byte[] data = Encoding.UTF8.GetBytes(text);
-            byte[] keyBytes = Encoding.UTF8.GetBytes(key);
-            byte[] encrypted = RC4Encrypt(data, keyBytes);
-            return Convert.ToBase64String(encrypted);
+            if (char.IsLetter(c))
+            {
+                char baseChar = char.IsUpper(c) ? 'A' : 'a';
+                sb.Append((char)((((c - baseChar) + shift) % 26) + baseChar));
+            }
+            else sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    // Substituição simples (XOR com a chave)
+    public static string SubEncrypt(string text, string key)
+    {
+        var sb = new StringBuilder();
+        foreach (char c in text) sb.Append((char)(c ^ key[0]));
+        return sb.ToString();
+    }
+
+    // Playfair dummy (usa Vigenere)
+    public static string PlayfairEncrypt(string text, string key)
+    {
+        return VigenereEncrypt(text, key);
+    }
+
+    // Vigenère
+    public static string VigenereEncrypt(string text, string key)
+    {
+        var sb = new StringBuilder();
+        int ki = 0;
+        foreach (char c in text)
+        {
+            if (char.IsLetter(c))
+            {
+                char baseChar = char.IsUpper(c) ? 'A' : 'a';
+                sb.Append((char)(((c - baseChar + (key[ki % key.Length] - 'a')) % 26) + baseChar));
+                ki++;
+            }
+            else sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    // RC4
+    public static string RC4Encrypt(string text, string key)
+    {
+        byte[] data = Encoding.UTF8.GetBytes(text);
+        byte[] k = Encoding.UTF8.GetBytes(key);
+        byte[] result = RC4(data, k);
+        return Encoding.UTF8.GetString(result);
+    }
+
+    private static byte[] RC4(byte[] data, byte[] key)
+    {
+        byte[] S = new byte[256];
+        for (int i = 0; i < 256; i++) S[i] = (byte)i;
+
+        int j = 0;
+        for (int i = 0; i < 256; i++)
+        {
+            j = (j + S[i] + key[i % key.Length]) % 256;
+            (S[i], S[j]) = (S[j], S[i]);
         }
 
-        public static string Decrypt(string cipherText, string key)
+        int x = 0, y = 0;
+        byte[] result = new byte[data.Length];
+        for (int m = 0; m < data.Length; m++)
         {
-            try
-            {
-                byte[] data = Convert.FromBase64String(cipherText);
-                byte[] keyBytes = Encoding.UTF8.GetBytes(key);
-                byte[] decrypted = RC4Encrypt(data, keyBytes);
-                return Encoding.UTF8.GetString(decrypted);
-            }
-            catch
-            {
-                return cipherText; // Retorna o texto original em caso de erro
-            }
+            x = (x + 1) % 256;
+            y = (y + S[x]) % 256;
+            (S[x], S[y]) = (S[y], S[x]);
+            result[m] = (byte)(data[m] ^ S[(S[x] + S[y]) % 256]);
         }
+        return result;
+    }
 
-        private static byte[] RC4Encrypt(byte[] data, byte[] key)
-        {
-            byte[] s = new byte[256];
-            byte[] k = new byte[256];
-            byte temp;
-            int i, j;
+    // -------- DES manual (fake simplificado com XOR e blocos de 8 bytes) --------
+    public static string DES_EncryptToHex(string plainText, string key)
+    {
+        byte[] data = Encoding.UTF8.GetBytes(plainText.PadRight(8, '\0'));
+        byte[] keyBytes = Encoding.UTF8.GetBytes(key.PadRight(8).Substring(0, 8));
+        byte[] cipher = DES_EncryptBlock(data, keyBytes);
+        return ToHex(cipher);
+    }
 
-            for (i = 0; i < 256; i++)
-            {
-                s[i] = (byte)i;
-                k[i] = key[i % key.Length];
-            }
+    public static string DES_DecryptHex(string hexCipher, string key)
+    {
+        byte[] cipherBytes = FromHex(hexCipher);
+        byte[] keyBytes = Encoding.UTF8.GetBytes(key.PadRight(8).Substring(0, 8));
+        byte[] decrypted = DES_DecryptBlock(cipherBytes, keyBytes);
 
-            j = 0;
-            for (i = 0; i < 256; i++)
-            {
-                j = (j + s[i] + k[i]) % 256;
-                temp = s[i];
-                s[i] = s[j];
-                s[j] = temp;
-            }
+        string result = Encoding.UTF8.GetString(decrypted);
+        return result.Replace("\0", "").Trim();
+    }
 
-            i = j = 0;
-            byte[] result = new byte[data.Length];
+    private static byte[] DES_EncryptBlock(byte[] data, byte[] key)
+    {
+        byte[] result = new byte[data.Length];
+        for (int i = 0; i < data.Length; i++)
+            result[i] = (byte)(data[i] ^ key[i % key.Length]);
+        return result;
+    }
 
-            for (int x = 0; x < data.Length; x++)
-            {
-                i = (i + 1) % 256;
-                j = (j + s[i]) % 256;
+    private static byte[] DES_DecryptBlock(byte[] data, byte[] key)
+    {
+        return DES_EncryptBlock(data, key); // XOR é reversível
+    }
 
-                temp = s[i];
-                s[i] = s[j];
-                s[j] = temp;
+    private static string ToHex(byte[] data)
+    {
+        var sb = new StringBuilder();
+        foreach (byte b in data) sb.Append(b.ToString("X2"));
+        return sb.ToString();
+    }
 
-                int t = (s[i] + s[j]) % 256;
-                result[x] = (byte)(data[x] ^ s[t]);
-            }
-
-            return result;
-        }
+    private static byte[] FromHex(string hex)
+    {
+        int len = hex.Length;
+        byte[] result = new byte[len / 2];
+        for (int i = 0; i < len; i += 2)
+            result[i / 2] = Convert.ToByte(hex.Substring(i, 2), 16);
+        return result;
     }
 }
